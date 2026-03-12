@@ -9,6 +9,7 @@ import {
   authSessions,
   authUsers,
   authVerifications,
+  instanceUserRoles,
 } from "@paperclipai/db";
 import type { Config } from "../config.js";
 
@@ -92,6 +93,24 @@ export function createBetterAuthInstance(db: Db, config: Config, trustedOrigins?
       disableSignUp: config.authDisableSignUp,
     },
     ...(isHttpOnly ? { advanced: { useSecureCookies: false } } : {}),
+    databaseHooks: {
+      user: {
+        create: {
+          after: async (user) => {
+            const existingAdmins = await db
+              .select({ id: instanceUserRoles.id })
+              .from(instanceUserRoles)
+              .limit(1);
+            if (existingAdmins.length === 0) {
+              await db.insert(instanceUserRoles).values({
+                userId: user.id,
+                role: "instance_admin",
+              });
+            }
+          },
+        },
+      },
+    },
   };
 
   if (!baseUrl) {
