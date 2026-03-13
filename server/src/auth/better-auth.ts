@@ -9,7 +9,9 @@ import {
   authSessions,
   authUsers,
   authVerifications,
+  instanceUserRoles,
 } from "@paperclipai/db";
+import { eq } from "drizzle-orm";
 import type { Config } from "../config.js";
 
 export type BetterAuthSessionUser = {
@@ -90,6 +92,27 @@ export function createBetterAuthInstance(db: Db, config: Config, trustedOrigins?
       enabled: true,
       requireEmailVerification: false,
       disableSignUp: config.authDisableSignUp,
+    },
+    databaseHooks: {
+      user: {
+        create: {
+          after: async (user) => {
+            // Auto-promote the first user to instance_admin so they can
+            // complete onboarding without a pre-seeded admin role.
+            const existingAdmins = await db
+              .select({ id: instanceUserRoles.id })
+              .from(instanceUserRoles)
+              .where(eq(instanceUserRoles.role, "instance_admin"))
+              .limit(1);
+            if (existingAdmins.length === 0) {
+              await db.insert(instanceUserRoles).values({
+                userId: user.id,
+                role: "instance_admin",
+              });
+            }
+          },
+        },
+      },
     },
     ...(isHttpOnly ? { advanced: { useSecureCookies: false } } : {}),
   };
