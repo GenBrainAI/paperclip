@@ -109,7 +109,18 @@ export function companyRoutes(db: Db) {
   router.post("/", validate(createCompanySchema), async (req, res) => {
     assertBoard(req);
     if (!(req.actor.source === "local_implicit" || req.actor.isInstanceAdmin)) {
-      throw forbidden("Instance admin required");
+      // First-user auto-promotion: if no instance admins exist yet (race with
+      // BetterAuth signup hook), promote this authenticated user on the fly.
+      const userId = req.actor.userId;
+      if (userId) {
+        const promoted = await access.autoPromoteFirstAdmin(userId);
+        if (promoted) {
+          req.actor.isInstanceAdmin = true;
+        }
+      }
+      if (!req.actor.isInstanceAdmin) {
+        throw forbidden("Instance admin required");
+      }
     }
     const company = await svc.create(req.body);
     await access.ensureMembership(company.id, "user", req.actor.userId ?? "local-board", "owner", "active");
