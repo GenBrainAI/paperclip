@@ -6,6 +6,7 @@ import { companyRoutes } from "../routes/companies.js";
 const mockCreate = vi.fn().mockResolvedValue({ id: "co-1", name: "Test Co", issuePrefix: "TC" });
 const mockEnsureMembership = vi.fn().mockResolvedValue({});
 const mockAutoPromoteFirstAdmin = vi.fn();
+const mockIsInstanceAdmin = vi.fn();
 
 vi.mock("../services/index.js", () => ({
   companyService: () => ({
@@ -26,6 +27,7 @@ vi.mock("../services/index.js", () => ({
     canUser: vi.fn(),
     ensureMembership: mockEnsureMembership,
     autoPromoteFirstAdmin: mockAutoPromoteFirstAdmin,
+    isInstanceAdmin: mockIsInstanceAdmin,
   }),
   logActivity: vi.fn(),
 }));
@@ -71,6 +73,7 @@ describe("POST /api/companies — first-user auto-promotion", () => {
 
   it("rejects non-admin user when admins already exist", async () => {
     mockAutoPromoteFirstAdmin.mockResolvedValue(false);
+    mockIsInstanceAdmin.mockResolvedValue(false);
     const app = buildApp({
       type: "board",
       userId: "user-2",

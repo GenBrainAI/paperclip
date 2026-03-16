@@ -116,6 +116,13 @@ export function companyRoutes(db: Db) {
         const promoted = await access.autoPromoteFirstAdmin(userId);
         if (promoted) {
           req.actor.isInstanceAdmin = true;
+        } else {
+          // The hook may have already promoted this user — re-check the DB
+          // since req.actor.isInstanceAdmin was set from a stale middleware read.
+          const isAdmin = await access.isInstanceAdmin(userId);
+          if (isAdmin) {
+            req.actor.isInstanceAdmin = true;
+          }
         }
       }
       if (!req.actor.isInstanceAdmin) {

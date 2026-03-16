@@ -101,16 +101,22 @@ export function createBetterAuthInstance(db: Db, config: Config, trustedOrigins?
             // complete onboarding without a pre-seeded admin role.
             // Exclude the synthetic "local-board" user that is created at
             // server startup — it does not count as a real admin.
-            const realAdmins = await db
-              .select({ id: instanceUserRoles.id, userId: instanceUserRoles.userId })
-              .from(instanceUserRoles)
-              .where(eq(instanceUserRoles.role, "instance_admin"));
-            const hasRealAdmin = realAdmins.some((row) => row.userId !== "local-board");
-            if (!hasRealAdmin) {
-              await db.insert(instanceUserRoles).values({
-                userId: user.id,
-                role: "instance_admin",
-              });
+            try {
+              const realAdmins = await db
+                .select({ id: instanceUserRoles.id, userId: instanceUserRoles.userId })
+                .from(instanceUserRoles)
+                .where(eq(instanceUserRoles.role, "instance_admin"));
+              const hasRealAdmin = realAdmins.some((row) => row.userId !== "local-board");
+              if (!hasRealAdmin) {
+                await db.insert(instanceUserRoles).values({
+                  userId: user.id,
+                  role: "instance_admin",
+                });
+              }
+            } catch (err) {
+              // Log but don't break signup — companies route has a fallback
+              // auto-promotion that will retry if this fails.
+              console.error("[better-auth] Failed to auto-promote first user to instance_admin:", err);
             }
           },
         },
