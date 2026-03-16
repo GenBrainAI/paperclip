@@ -143,12 +143,12 @@ export function accessService(db: Db) {
   }
 
   async function autoPromoteFirstAdmin(userId: string): Promise<boolean> {
-    const anyAdmin = await db
-      .select({ id: instanceUserRoles.id })
+    const admins = await db
+      .select({ id: instanceUserRoles.id, userId: instanceUserRoles.userId })
       .from(instanceUserRoles)
-      .where(eq(instanceUserRoles.role, "instance_admin"))
-      .limit(1);
-    if (anyAdmin.length > 0) return false;
+      .where(eq(instanceUserRoles.role, "instance_admin"));
+    const hasRealAdmin = admins.some((row) => row.userId !== "local-board");
+    if (hasRealAdmin) return false;
     await promoteInstanceAdmin(userId);
     return true;
   }

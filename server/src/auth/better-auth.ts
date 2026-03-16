@@ -97,14 +97,16 @@ export function createBetterAuthInstance(db: Db, config: Config, trustedOrigins?
       user: {
         create: {
           after: async (user) => {
-            // Auto-promote the first user to instance_admin so they can
+            // Auto-promote the first real user to instance_admin so they can
             // complete onboarding without a pre-seeded admin role.
-            const existingAdmins = await db
-              .select({ id: instanceUserRoles.id })
+            // Exclude the synthetic "local-board" user that is created at
+            // server startup — it does not count as a real admin.
+            const realAdmins = await db
+              .select({ id: instanceUserRoles.id, userId: instanceUserRoles.userId })
               .from(instanceUserRoles)
-              .where(eq(instanceUserRoles.role, "instance_admin"))
-              .limit(1);
-            if (existingAdmins.length === 0) {
+              .where(eq(instanceUserRoles.role, "instance_admin"));
+            const hasRealAdmin = realAdmins.some((row) => row.userId !== "local-board");
+            if (!hasRealAdmin) {
               await db.insert(instanceUserRoles).values({
                 userId: user.id,
                 role: "instance_admin",
