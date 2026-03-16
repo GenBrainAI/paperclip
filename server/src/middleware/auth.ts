@@ -57,11 +57,33 @@ export function actorMiddleware(db: Db, opts: ActorMiddlewareOptions): RequestHa
                 ),
               ),
           ]);
+          let isAdmin = Boolean(roleRow);
+          // Auto-promote first real user to instance_admin if no admin exists.
+          // Covers the race where BetterAuth's signup hook hasn't committed yet.
+          if (!isAdmin) {
+            try {
+              const allAdmins = await db
+                .select({ userId: instanceUserRoles.userId })
+                .from(instanceUserRoles)
+                .where(eq(instanceUserRoles.role, "instance_admin"));
+              const hasRealAdmin = allAdmins.some((row) => row.userId !== "local-board");
+              if (!hasRealAdmin) {
+                await db.insert(instanceUserRoles).values({
+                  userId,
+                  role: "instance_admin",
+                });
+                isAdmin = true;
+                logger.info({ userId }, "Auto-promoted first user to instance_admin");
+              }
+            } catch (err) {
+              logger.warn({ err, userId }, "Failed to auto-promote first user to instance_admin");
+            }
+          }
           req.actor = {
             type: "board",
             userId,
             companyIds: memberships.map((row) => row.companyId),
-            isInstanceAdmin: Boolean(roleRow),
+            isInstanceAdmin: isAdmin,
             runId: runIdHeader ?? undefined,
             source: "session",
           };
