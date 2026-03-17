@@ -142,6 +142,17 @@ export function accessService(db: Db) {
       .then((rows) => rows[0]);
   }
 
+  async function autoPromoteFirstAdmin(userId: string): Promise<boolean> {
+    const admins = await db
+      .select({ id: instanceUserRoles.id, userId: instanceUserRoles.userId })
+      .from(instanceUserRoles)
+      .where(eq(instanceUserRoles.role, "instance_admin"));
+    const hasRealAdmin = admins.some((row) => row.userId !== "local-board");
+    if (hasRealAdmin) return false;
+    await promoteInstanceAdmin(userId);
+    return true;
+  }
+
   async function demoteInstanceAdmin(userId: string) {
     return db
       .delete(instanceUserRoles)
@@ -260,6 +271,7 @@ export function accessService(db: Db) {
     listMembers,
     setMemberPermissions,
     promoteInstanceAdmin,
+    autoPromoteFirstAdmin,
     demoteInstanceAdmin,
     listUserCompanyAccess,
     setUserCompanyAccess,
