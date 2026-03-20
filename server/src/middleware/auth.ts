@@ -74,9 +74,24 @@ export function actorMiddleware(db: Db, opts: ActorMiddlewareOptions): RequestHa
                 });
                 isAdmin = true;
                 logger.info({ userId }, "Auto-promoted first user to instance_admin");
+              } else if (allAdmins.some((row) => row.userId === userId)) {
+                // BetterAuth hook already promoted this user before middleware
+                // ran its initial check — acknowledge the promotion.
+                isAdmin = true;
               }
             } catch (err) {
-              logger.warn({ err, userId }, "Failed to auto-promote first user to instance_admin");
+              // Insert may fail with unique constraint if BetterAuth hook already
+              // promoted this user concurrently. Re-check to confirm.
+              const recheckRow = await db
+                .select({ id: instanceUserRoles.id })
+                .from(instanceUserRoles)
+                .where(and(eq(instanceUserRoles.userId, userId), eq(instanceUserRoles.role, "instance_admin")))
+                .then((rows) => rows[0] ?? null);
+              if (recheckRow) {
+                isAdmin = true;
+              } else {
+                logger.warn({ err, userId }, "Failed to auto-promote first user to instance_admin");
+              }
             }
           }
           req.actor = {

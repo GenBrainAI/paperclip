@@ -185,4 +185,80 @@ describe("actorMiddleware — first-user auto-promotion", () => {
     // Should not even query for all admins since user already has the role
     expect(roleSelectCallCount).toBe(1);
   });
+
+  it("recognises admin when BetterAuth hook promoted user before middleware check", async () => {
+    // Race condition: BetterAuth hook already committed the admin role
+    // between the initial roleSelect (stale, empty) and the allAdmins query.
+    mockResolveSession.mockResolvedValue({
+      user: { id: "user-1", email: "test@example.com", name: "Test" },
+      session: { id: "sess-1", userId: "user-1" },
+    });
+    roleSelectResult = []; // initial check: user not yet admin (stale)
+    allAdminsResult = [{ userId: "user-1" }]; // hook already promoted this user
+
+    const middleware = actorMiddleware(mockDb as any, {
+      deploymentMode: "authenticated",
+      resolveSession: mockResolveSession,
+    });
+    const req = createRequest();
+    const next = vi.fn();
+    await middleware(req, {} as any, next);
+
+    expect(next).toHaveBeenCalled();
+    expect((req.actor as any).isInstanceAdmin).toBe(true);
+    // Should NOT attempt insert — user already promoted by hook
+    expect(mockInsertValues).not.toHaveBeenCalled();
+  });
+
+  it("re-checks admin after insert failure (unique constraint race)", async () => {
+    // Race condition: insert fails because BetterAuth hook committed
+    // concurrently. The catch block re-checks and finds the user is admin.
+    mockResolveSession.mockResolvedValue({
+      user: { id: "user-1", email: "test@example.com", name: "Test" },
+      session: { id: "sess-1", userId: "user-1" },
+    });
+    roleSelectResult = []; // initial check: user not yet admin
+    allAdminsResult = []; // no admins (race — hook hasn't committed yet)
+
+    // Make insert throw (unique constraint violation)
+    const recheckResult = [{ id: "role-1" }];
+    const failingDb = createMockDb();
+    failingDb.insert = vi.fn().mockReturnValue({
+      values: vi.fn().mockReturnValue(Promise.reject(new Error("unique constraint"))),
+    });
+    // Override the third select call to return the re-check result
+    let failingSelectCount = 0;
+    failingDb.select = vi.fn().mockImplementation((fields?: Record<string, unknown>) => {
+      const hasCompanyId = fields && "companyId" in fields;
+      return {
+        from: vi.fn().mockReturnValue({
+          where: vi.fn().mockImplementation(() => {
+            if (hasCompanyId) return Promise.resolve(membershipSelectResult);
+            failingSelectCount++;
+            if (failingSelectCount === 1) {
+              // First: check if user has admin role
+              return { then: (fn: (rows: unknown[]) => unknown) => Promise.resolve(fn(roleSelectResult)) };
+            }
+            if (failingSelectCount === 2) {
+              // Second: list all admins for auto-promote
+              return Promise.resolve(allAdminsResult);
+            }
+            // Third: re-check after insert failure
+            return { then: (fn: (rows: unknown[]) => unknown) => Promise.resolve(fn(recheckResult)) };
+          }),
+        }),
+      };
+    });
+
+    const middleware = actorMiddleware(failingDb as any, {
+      deploymentMode: "authenticated",
+      resolveSession: mockResolveSession,
+    });
+    const req = createRequest();
+    const next = vi.fn();
+    await middleware(req, {} as any, next);
+
+    expect(next).toHaveBeenCalled();
+    expect((req.actor as any).isInstanceAdmin).toBe(true);
+  });
 });
